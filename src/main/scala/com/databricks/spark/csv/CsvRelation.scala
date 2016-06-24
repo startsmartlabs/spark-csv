@@ -113,7 +113,6 @@ case class CsvRelation protected[spark] (
       } else if (failFast && schemaFields.length != tokens.length) {
         throw new RuntimeException(s"Malformed line in FAILFAST mode: ${tokens.mkString(",")}")
       } else if (superPermissive && schemaFields.length - 1 != tokens.length) {
-        logger.warn("sudheer10 - " + schemaFields.length + " - " + tokens.length + " tokens - " + Row.fromSeq(tokens))
         Some(Row.fromSeq(new Array[String](schemaFields.length - 1) ++ Array(Row.fromSeq(Array(tokens.mkString(" , "), "Schema parse error: Malformed row")))))
       } else {
         val indexSafeTokens = if (superPermissive) {
