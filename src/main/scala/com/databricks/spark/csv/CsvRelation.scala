@@ -135,17 +135,17 @@ case class CsvRelation protected[spark] (
           Some(Row.fromSeq(rowArray))
         } catch {
           case _: java.lang.NumberFormatException |
-               _: IllegalArgumentException if(dropMalformed) =>
+               _: IllegalArgumentException if (dropMalformed) =>
             logger.warn("Number format exception. " +
               s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
             None
-          case pe: java.text.ParseException if(dropMalformed) =>
+          case pe: java.text.ParseException if (dropMalformed) =>
             logger.warn("Parse exception. " +
               s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
             None
          case _: java.lang.NumberFormatException |
               _: IllegalArgumentException |
-              _: java.text.ParseException if(superPermissive) =>
+              _: java.text.ParseException if (superPermissive) =>
            Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), "Schema parse error: Malformed row")))
         }
       }
@@ -259,10 +259,10 @@ case class CsvRelation protected[spark] (
   }
 
   private def inferSchema(): StructType = {
-    val errorSchema = StructType(Array(StructField("row",StringType,true), StructField("error_message",StringType,true)))
+    val errorSchema = StructType(Array(StructField("row", StringType, true), StructField("error_message", StringType, true)))
     if (this.userSchema != null) {
-      if(superPermissive) {
-        StructType(userSchema.fields ++ Array(StructField("__errors", errorSchema, true)))
+      if (superPermissive) {
+        StructType(userSchema.fields :+ StructField("__errors", errorSchema, true))
       } else {
         userSchema
       }
@@ -297,7 +297,7 @@ case class CsvRelation protected[spark] (
         val schemaFields = header.map { fieldName =>
           StructField(fieldName.toString, StringType, nullable = true)
         }
-        if(superPermissive) {
+        if (superPermissive) {
           StructType(schemaFields ++ Array(StructField("__errors", errorSchema, true)))
         } else {
           StructType(schemaFields)
