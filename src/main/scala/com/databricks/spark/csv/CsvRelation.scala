@@ -113,7 +113,7 @@ case class CsvRelation protected[spark] (
       } else if (failFast && schemaFields.length != tokens.length) {
         throw new RuntimeException(s"Malformed line in FAILFAST mode: ${tokens.mkString(",")}")
       } else if (superPermissive && schemaFields.length - 1 != tokens.length) {
-        Some(Row.fromSeq(new Array[String](schemaFields.length - 1) ++ Array(Row.fromSeq(Array(tokens.mkString(" , "), "Schema parse error: Malformed row")))))
+        Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), "Schema parse error: Malformed row")))
       } else {
         val indexSafeTokens = if (superPermissive) {
           tokens ++ new Array[String](1)
@@ -126,7 +126,7 @@ case class CsvRelation protected[spark] (
           while (index < schemaFields.length) {
             val field = schemaFields(index)
             rowArray(index) = if (field.name == "__errors") {
-              Row.fromSeq(Array(null, null))
+              null
             } else { TypeCast.castTo(indexSafeTokens(index), field.dataType, field.nullable,
               treatEmptyValuesAsNulls, nullValue, simpleDateFormatter)
             }
@@ -135,22 +135,18 @@ case class CsvRelation protected[spark] (
           Some(Row.fromSeq(rowArray))
         } catch {
           case _: java.lang.NumberFormatException |
-               _: IllegalArgumentException if(dropMalformed | superPermissive)=>
-            if(dropMalformed) {
-              logger.warn("Number format exception. " +
-                s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
-              None
-            } else{
-              Some(Row.fromSeq(new Array[String](schemaFields.length - 1) ++ Array(Row.fromSeq(Array(tokens.mkString(" , "), "Schema parse error: Malformed row")))))
-            }
-          case pe: java.text.ParseException if(dropMalformed | superPermissive) =>
-            if(dropMalformed) {
-              logger.warn("Parse exception. " +
-                s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
-              None
-            } else {
-              Some(Row.fromSeq(new Array[String](schemaFields.length - 1) ++ Array(Row.fromSeq(Array(tokens.mkString(" , "), "Schema parse error: Malformed row")))))
-            }
+               _: IllegalArgumentException if(dropMalformed) =>
+            logger.warn("Number format exception. " +
+              s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
+            None
+          case pe: java.text.ParseException if(dropMalformed) =>
+            logger.warn("Parse exception. " +
+              s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
+            None
+         case _: java.lang.NumberFormatException |
+              _: IllegalArgumentException |
+              _: java.text.ParseException if(superPermissive) =>
+           Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), "Schema parse error: Malformed row")))
         }
       }
     }
@@ -214,9 +210,9 @@ case class CsvRelation protected[spark] (
               val field = schemaFields(index)
               rowArray(subIndex) = if (field.name == "__errors") {
                 if (schemaFields.length - 1 != tokens.length) {
-                  Row.fromSeq(Array(tokens.mkString(" , "), "Schema parse error: Malformed row"))
+                  Row(tokens.mkString(", "), "Schema parse error: Malformed row")
                 } else {
-                  Row.fromSeq(Array(null, null))
+                  null
                 }
               } else { TypeCast.castTo(
                 indexSafeTokens(index),
@@ -227,48 +223,35 @@ case class CsvRelation protected[spark] (
                 simpleDateFormatter
                 )
               }
-              subIndex = subIndex + 1
+              subIndex += 1
             }
             Some(Row.fromSeq(rowArray.take(requiredSize)))
           } catch {
             case _: java.lang.NumberFormatException |
                  _: java.lang.NullPointerException |
-                 _: IllegalArgumentException if(dropMalformed | superPermissive) =>
-              if(dropMalformed) {
-                logger.warn("Number format exception. " +
-                  s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
-                None
-              } else{
-                var subIndex: Int = 0
-                while (subIndex < safeRequiredIndices.length) {
-                  val field = schemaFields(safeRequiredIndices(subIndex))
-                  rowArray(subIndex) = if (field.name == "__errors") {
-                    Row.fromSeq(Array(tokens.mkString(" , "), "Schema parse error: Malformed row"))
-                  } else {
-                    null
-                  }
-                  subIndex = subIndex + 1
+                 _: IllegalArgumentException if (dropMalformed) =>
+              logger.warn("Number format exception. " +
+                s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
+              None
+            case pe: java.text.ParseException if (dropMalformed) =>
+              logger.warn("Parse exception. " +
+                s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
+              None
+            case _: java.lang.NumberFormatException |
+                 _: java.lang.NullPointerException |
+                 _: IllegalArgumentException |
+                 _: java.text.ParseException if (superPermissive) =>
+              var subIndex: Int = 0
+              while (subIndex < safeRequiredIndices.length) {
+                val field = schemaFields(safeRequiredIndices(subIndex))
+                rowArray(subIndex) = if (field.name == "__errors") {
+                  Row(tokens.mkString(", "), "Schema parse error: Malformed row")
+                } else {
+                  null
                 }
-                Some(Row.fromSeq(rowArray.take(requiredSize)))
+                subIndex += 1
               }
-            case pe: java.text.ParseException if(dropMalformed | superPermissive) =>
-              if(dropMalformed) {
-                logger.warn("Parse exception. " +
-                  s"Dropping malformed line: ${tokens.mkString(delimiter.toString)}")
-                None
-              } else {
-                var subIndex: Int = 0
-                while (subIndex < safeRequiredIndices.length) {
-                  val field = schemaFields(safeRequiredIndices(subIndex))
-                  rowArray(subIndex) = if (field.name == "__errors") {
-                    Row.fromSeq(Array(tokens.mkString(" , "), "Schema parse error: Malformed row"))
-                  } else {
-                    null
-                  }
-                  subIndex = subIndex + 1
-                }
-                Some(Row.fromSeq(rowArray.take(requiredSize)))
-              }
+              Some(Row.fromSeq(rowArray.take(requiredSize)))
           }
         }
       }
@@ -276,7 +259,7 @@ case class CsvRelation protected[spark] (
   }
 
   private def inferSchema(): StructType = {
-    val errorSchema = StructType(Array(StructField("__row",StringType,true), StructField("__error_message",StringType,true)))
+    val errorSchema = StructType(Array(StructField("row",StringType,true), StructField("error_message",StringType,true)))
     if (this.userSchema != null) {
       if(superPermissive) {
         StructType(userSchema.fields ++ Array(StructField("__errors", errorSchema, true)))
