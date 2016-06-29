@@ -115,11 +115,7 @@ case class CsvRelation protected[spark] (
       } else if (failFast && schemaFields.length != tokens.length) {
         throw new RuntimeException(s"Malformed line in FAILFAST mode: ${tokens.mkString(",")}")
       } else if (superPermissive && schemaFields.length - 1 != tokens.length) {
-        val error_message = if (schemaFields.length - 1 > tokens.length) {
-          "Schema parse error: Has more number of columns"
-        } else {
-          "Schema parse error: Has less number of columns"
-        }
+        val error_message = "Schema parse error: Expected " + (schemaFields.length - 1) + " but got " + tokens.length + " columns"
         Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), error_message)))
       } else {
         val indexSafeTokens = if (superPermissive) {
@@ -153,7 +149,8 @@ case class CsvRelation protected[spark] (
          case _: java.lang.NumberFormatException |
               _: IllegalArgumentException |
               _: java.text.ParseException if (superPermissive) =>
-           Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), "Schema parse error: Datatype mismatch")))
+           val error_message = "Schema parse error: Datatype mismatch, Expected type: '" + schemaFields(index).dataType + "' at column name: '" + schemaFields(index).name + "', column number: " + (index + 1)
+           Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), error_message)))
         }
       }
     }
@@ -179,7 +176,6 @@ case class CsvRelation protected[spark] (
       requiredFields
     }
     val rowArray = new Array[Any](safeRequiredFields.length)
-    var error_message = ""
     if (shouldTableScan) {
       buildScan()
     } else {
@@ -210,19 +206,16 @@ case class CsvRelation protected[spark] (
           } else {
             tokens
           }
+          var error_message = ""
+          var subIndex: Int = 0
           try {
             var index: Int = 0
-            var subIndex: Int = 0
             while (subIndex < safeRequiredIndices.length) {
               index = safeRequiredIndices(subIndex)
               val field = schemaFields(index)
               rowArray(subIndex) = if (field.name == "__errors") {
                 if (schemaFields.length - 1 != tokens.length) {
-                  error_message = if (schemaFields.length - 1 > tokens.length) {
-                    "Schema parse error: Has more number of columns"
-                  } else {
-                    "Schema parse error: Has less number of columns"
-                  }
+                  error_message = "Schema parse error: Expected " + (schemaFields.length - 1) + " but got " + tokens.length + " columns"
                   throw new ValidationException
                 } else {
                   null
@@ -256,11 +249,11 @@ case class CsvRelation protected[spark] (
                  _: java.text.ParseException |
                  _: ValidationException if (superPermissive) =>
               error_message = if (error_message == "") {
-                "Schema parse error: Datatype mismatch"
+                "Schema parse error: Datatype mismatch, Expected type: '" + schemaFields(safeRequiredIndices(subIndex)).dataType + "' at column name: '" + schemaFields(safeRequiredIndices(subIndex)).name + "', column number: " + (safeRequiredIndices(subIndex) + 1)
               } else {
                 error_message
               }
-              var subIndex: Int = 0
+              subIndex= 0
               while (subIndex < safeRequiredIndices.length) {
                 val field = schemaFields(safeRequiredIndices(subIndex))
                 rowArray(subIndex) = if (field.name == "__errors") {
