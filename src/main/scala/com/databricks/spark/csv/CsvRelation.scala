@@ -32,6 +32,8 @@ import org.apache.spark.sql.types._
 import com.databricks.spark.csv.readers.{BulkCsvReader, LineCsvReader}
 import com.databricks.spark.csv.util._
 
+class ValidationException(message: String = null) extends Exception(message)
+
 case class CsvRelation protected[spark] (
     baseRDD: () => RDD[String],
     location: Option[String],
@@ -113,7 +115,12 @@ case class CsvRelation protected[spark] (
       } else if (failFast && schemaFields.length != tokens.length) {
         throw new RuntimeException(s"Malformed line in FAILFAST mode: ${tokens.mkString(",")}")
       } else if (superPermissive && schemaFields.length - 1 != tokens.length) {
-        Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), "Schema parse error: Malformed row")))
+        val error_message = if (schemaFields.length - 1 > tokens.length) {
+          "Schema parse error: Has more number of columns"
+        } else {
+          "Schema parse error: Has less number of columns"
+        }
+        Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), error_message)))
       } else {
         val indexSafeTokens = if (superPermissive) {
           tokens ++ new Array[String](1)
@@ -146,7 +153,7 @@ case class CsvRelation protected[spark] (
          case _: java.lang.NumberFormatException |
               _: IllegalArgumentException |
               _: java.text.ParseException if (superPermissive) =>
-           Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), "Schema parse error: Malformed row")))
+           Some(Row.fromSeq(new Array[String](schemaFields.length - 1) :+ Row(tokens.mkString(", "), "Schema parse error: Datatype mismatch")))
         }
       }
     }
@@ -172,6 +179,7 @@ case class CsvRelation protected[spark] (
       requiredFields
     }
     val rowArray = new Array[Any](safeRequiredFields.length)
+    var error_message = ""
     if (shouldTableScan) {
       buildScan()
     } else {
@@ -210,7 +218,12 @@ case class CsvRelation protected[spark] (
               val field = schemaFields(index)
               rowArray(subIndex) = if (field.name == "__errors") {
                 if (schemaFields.length - 1 != tokens.length) {
-                  Row(tokens.mkString(", "), "Schema parse error: Malformed row")
+                  error_message = if (schemaFields.length - 1 > tokens.length) {
+                    "Schema parse error: Has more number of columns"
+                  } else {
+                    "Schema parse error: Has less number of columns"
+                  }
+                  throw new ValidationException
                 } else {
                   null
                 }
@@ -240,12 +253,18 @@ case class CsvRelation protected[spark] (
             case _: java.lang.NumberFormatException |
                  _: java.lang.NullPointerException |
                  _: IllegalArgumentException |
-                 _: java.text.ParseException if (superPermissive) =>
+                 _: java.text.ParseException |
+                 _: ValidationException if (superPermissive) =>
+              error_message = if (error_message == "") {
+                "Schema parse error: Datatype mismatch"
+              } else {
+                error_message
+              }
               var subIndex: Int = 0
               while (subIndex < safeRequiredIndices.length) {
                 val field = schemaFields(safeRequiredIndices(subIndex))
                 rowArray(subIndex) = if (field.name == "__errors") {
-                  Row(tokens.mkString(", "), "Schema parse error: Malformed row")
+                  Row(tokens.mkString(", "), error_message)
                 } else {
                   null
                 }
